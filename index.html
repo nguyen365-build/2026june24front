@@ -42,9 +42,22 @@
       object-fit: cover;
       aspect-ratio: 4 / 3;
       cursor: zoom-in;
-      transition: transform .25s ease;
+      opacity: 0;
+      transition: opacity .35s ease, transform .25s ease;
     }
+    figure.loaded img { opacity: 1; }
     figure img:hover { transform: scale(1.03); }
+    /* Shimmer placeholder shown while each photo downloads */
+    figure.loading {
+      aspect-ratio: 4 / 3;
+      background: linear-gradient(90deg, #1b1e24, #262a31, #1b1e24);
+      background-size: 200% 100%;
+      animation: shimmer 1.2s linear infinite;
+    }
+    @keyframes shimmer {
+      0%   { background-position:  200% 0; }
+      100% { background-position: -200% 0; }
+    }
     #empty {
       grid-column: 1 / -1;
       text-align: center;
@@ -72,51 +85,63 @@
     <p>Image gallery</p>
   </header>
 
-  <main id="gallery">
-    <div id="empty">
-      No images yet. Add files named <code>img1</code>–<code>img10</code>
-      (.jpg, .jpeg, .png, .webp, or .gif) to the <code>images/</code> folder.
-    </div>
-  </main>
+  <main id="gallery"></main>
+
+  <p id="empty" hidden>
+    No images yet. Add files named <code>img1</code>–<code>img10</code>
+    (.jpg, .jpeg, .png, .webp, or .gif) to the <code>images/</code> folder.
+  </p>
 
   <div id="lightbox"><img alt="" /></div>
 
   <footer>Hosted on GitHub Pages</footer>
 
   <script>
-    // Try up to 10 image slots; for each, attempt common extensions and
-    // show the first that loads. Slots that don't exist are skipped.
+    // Render up to 10 image slots. Each slot shows a shimmer placeholder
+    // immediately and loads its photo progressively (a single request per
+    // image), so a half-loaded page shows "still loading" tiles instead of
+    // looking like it only has one image. For each slot we try the common
+    // extensions in order; a slot whose file doesn't exist is removed.
     const exts = ["jpg", "jpeg", "png", "webp", "gif"];
     const gallery = document.getElementById("gallery");
     const empty = document.getElementById("empty");
     const lightbox = document.getElementById("lightbox");
     const lightboxImg = lightbox.querySelector("img");
-    let shown = 0;
+    let pending = 10, shown = 0;
 
-    function tryLoad(slot, extIndex) {
-      if (extIndex >= exts.length) return;          // no extension worked
-      const url = `images/img${slot}.${exts[extIndex]}`;
-      const probe = new Image();
-      probe.onload = () => addFigure(url, slot);
-      probe.onerror = () => tryLoad(slot, extIndex + 1);
-      probe.src = url;
+    function settle() {
+      // When every slot has either loaded or been ruled out, and none
+      // showed up, reveal the "no images yet" hint.
+      if (--pending <= 0 && shown === 0) empty.hidden = false;
     }
 
-    function addFigure(url, slot) {
-      if (shown === 0) empty.remove();
-      shown++;
+    for (let slot = 1; slot <= 10; slot++) {
       const fig = document.createElement("figure");
-      fig.dataset.slot = slot;                       // keep visual order
+      fig.className = "loading";
+      fig.style.order = slot;                       // keep visual order stable
       const img = document.createElement("img");
-      img.src = url;
       img.alt = `Image ${slot}`;
-      img.addEventListener("click", () => openLightbox(url));
+      img.loading = "lazy";
+      img.decoding = "async";
+      let ext = 0;
+      img.onload = () => {
+        fig.classList.remove("loading");
+        fig.classList.add("loaded");
+        shown++;
+        settle();
+      };
+      img.onerror = () => {
+        if (++ext < exts.length) {                  // try the next extension
+          img.src = `images/img${slot}.${exts[ext]}`;
+        } else {                                     // this slot has no file
+          fig.remove();
+          settle();
+        }
+      };
+      img.addEventListener("click", () => openLightbox(img.currentSrc || img.src));
       fig.appendChild(img);
-      // insert in slot order
-      const after = [...gallery.children].find(
-        c => c.dataset && Number(c.dataset.slot) > slot
-      );
-      gallery.insertBefore(fig, after || null);
+      gallery.appendChild(fig);
+      img.src = `images/img${slot}.${exts[0]}`;
     }
 
     function openLightbox(url) {
@@ -127,8 +152,6 @@
     document.addEventListener("keydown", e => {
       if (e.key === "Escape") lightbox.classList.remove("open");
     });
-
-    for (let i = 1; i <= 10; i++) tryLoad(i, 0);
   </script>
 </body>
 </html>
